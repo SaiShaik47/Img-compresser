@@ -18,7 +18,8 @@ import {
   convertImage,
   watermarkText,
   blurImage,
-  readMeta
+  readMeta,
+  applyFeatureMode
 } from "./imageOps.js";
 
 function makeInitialSession() {
@@ -125,27 +126,27 @@ export function buildBot() {
 
     if (data === "p:resize") {
       ctx.session.awaiting = "resize_wh";
-      return updatePanel(ctx, "🖼 **Resize**\nSend: `width height`\nExample: `1080 0`", kbBackHome());
+      return updatePanel(ctx, "🖼 **Resize**\nSend: `width height [mode]`\nExample: `1080 0 balanced`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
     if (data === "p:crop") {
       ctx.session.awaiting = "crop_xywh";
-      return updatePanel(ctx, "✂️ **Crop**\nSend: `left top width height`\nExample: `50 50 400 400`", kbBackHome());
+      return updatePanel(ctx, "✂️ **Crop**\nSend: `left top width height [mode]`\nExample: `50 50 400 400 ultra`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
     if (data === "p:convert") {
       ctx.session.awaiting = "convert_fmt";
-      return updatePanel(ctx, "🔁 **Convert**\nSend: `jpg` / `png` / `webp`", kbBackHome());
+      return updatePanel(ctx, "🔁 **Convert**\nSend: `jpg|png|webp [mode]`\nExample: `png crystal`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
     if (data === "p:rotate") {
       ctx.session.awaiting = "rotate_angle";
-      return updatePanel(ctx, "🔃 **Rotate**\nSend: `90` / `180` / `270`", kbBackHome());
+      return updatePanel(ctx, "🔃 **Rotate**\nSend: `90|180|270 [mode]`\nExample: `90 balanced`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
     if (data === "p:watermark") {
       ctx.session.awaiting = "watermark_text";
-      return updatePanel(ctx, "🖋 **Watermark**\nSend text (example: `Sai Shaik`)", kbBackHome());
+      return updatePanel(ctx, "🖋 **Watermark**\nSend: `text | mode`\nExample: `Sai Shaik | crystal`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
     if (data === "p:blur") {
       ctx.session.awaiting = "blur_sigma";
-      return updatePanel(ctx, "🫧 **Blur**\nSend strength `1-20` (example: `6`)", kbBackHome());
+      return updatePanel(ctx, "🫧 **Blur**\nSend: `sigma [mode]`\nExample: `6 ultra`\nModes: `ultra` / `balanced` / `crystal`", kbBackHome());
     }
 
     if (data === "set:fmt") {
@@ -213,75 +214,89 @@ export function buildBot() {
       }
 
       if (step === "resize_wh") {
-        const [wRaw, hRaw] = text.split(/\s+/);
+        const [wRaw, hRaw, modeRaw] = text.split(/\s+/);
         const w = parseInt(wRaw, 10);
         const h = parseInt(hRaw, 10);
         const width = Number.isFinite(w) ? (w === 0 ? null : w) : null;
         const height = Number.isFinite(h) ? (h === 0 ? null : h) : null;
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
-        const out = await resizeImage(input, { width, height, fit: "inside" });
-        return sendOutput(ctx, input, out, "resized.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
+        const resized = await resizeImage(input, { width, height, fit: "inside" });
+        const styled = await applyFeatureMode(resized, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "crop_xywh") {
-        const [l, t, w, h] = text.split(/\s+/).map((n) => parseInt(n, 10));
+        const [lRaw, tRaw, wRaw, hRaw, modeRaw] = text.split(/\s+/);
+        const [l, t, w, h] = [lRaw, tRaw, wRaw, hRaw].map((n) => parseInt(n, 10));
         if (![l, t, w, h].every(Number.isFinite)) return ctx.reply("Send: `left top width height`", { parse_mode: "Markdown" });
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
-        const out = await cropImage(input, { left: l, top: t, width: w, height: h });
-        return sendOutput(ctx, input, out, "cropped.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
+        const cropped = await cropImage(input, { left: l, top: t, width: w, height: h });
+        const styled = await applyFeatureMode(cropped, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "convert_fmt") {
-        const fmt = text.toLowerCase();
+        const [fmtRaw, modeRaw] = text.split(/\s+/);
+        const fmt = (fmtRaw || "").toLowerCase();
         const norm = fmt === "jpg" ? "jpeg" : fmt;
         if (!["jpeg", "png", "webp"].includes(norm)) return ctx.reply("Use: `jpg` / `png` / `webp`", { parse_mode: "Markdown" });
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
         const out = await convertImage(input, { format: norm, quality: 88 });
-
-        const name = norm === "png" ? "converted.png" : norm === "webp" ? "converted.webp" : "converted.jpg";
-        const mime = norm === "png" ? "image/png" : norm === "webp" ? "image/webp" : "image/jpeg";
-        return sendOutput(ctx, input, out, name, mime, MAX_OUTPUT_BYTES);
+        const styled = await applyFeatureMode(out, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "rotate_angle") {
-        const angle = parseInt(text, 10);
+        const [angleRaw, modeRaw] = text.split(/\s+/);
+        const angle = parseInt(angleRaw, 10);
         if (![90, 180, 270].includes(angle)) return ctx.reply("Send: `90` / `180` / `270`", { parse_mode: "Markdown" });
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
-        const out = await rotateImage(input, { angle });
-        return sendOutput(ctx, input, out, `rotated_${angle}.jpg`, "image/jpeg", MAX_OUTPUT_BYTES);
+        const rotated = await rotateImage(input, { angle });
+        const styled = await applyFeatureMode(rotated, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "watermark_text") {
-        const wm = text.slice(0, 50);
+        const [wmRaw, modeRaw] = text.split("|").map((part) => part.trim());
+        const wm = (wmRaw || "").slice(0, 50);
         if (!wm) return ctx.reply("Send watermark text.", { parse_mode: "Markdown" });
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
-        const out = await watermarkText(input, { text: wm, opacity: 0.35, size: 48 });
-        return sendOutput(ctx, input, out, "watermarked.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
+        const watermarked = await watermarkText(input, { text: wm, opacity: 0.35, size: 48 });
+        const styled = await applyFeatureMode(watermarked, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "blur_sigma") {
-        const sigma = clampInt(parseInt(text, 10), 1, 20, 6);
+        const [sigmaRaw, modeRaw] = text.split(/\s+/);
+        const sigma = clampInt(parseInt(sigmaRaw, 10), 1, 20, 6);
+        const mode = parseFeatureMode(modeRaw);
 
         ctx.session.awaiting = null;
         const input = await downloadTelegramFile(ctx);
         await ctx.reply(LUX.processing, { parse_mode: "Markdown" });
-        const out = await blurImage(input, { sigma });
-        return sendOutput(ctx, input, out, `blur_${sigma}.jpg`, "image/jpeg", MAX_OUTPUT_BYTES);
+        const blurred = await blurImage(input, { sigma });
+        const styled = await applyFeatureMode(blurred, mode);
+        return sendOutputWithStats(ctx, styled, styled.outName, styled.outMime, MAX_OUTPUT_BYTES, `🎚 Mode: **${styled.mode}**`);
       }
 
       if (step === "studio_fmt") {
@@ -494,6 +509,12 @@ export function buildBot() {
     if (unit === "kb") return Math.round(value);
     if (unit === "mb") return Math.round(value * 1024);
     return null;
+  }
+
+  function parseFeatureMode(input) {
+    const mode = (input || "balanced").trim().toLowerCase();
+    if (["ultra", "balanced", "crystal"].includes(mode)) return mode;
+    return "balanced";
   }
 
   bot.catch((err) => console.error("Bot error:", err));

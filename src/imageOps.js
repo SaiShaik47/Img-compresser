@@ -149,6 +149,25 @@ export async function blurImage(inputBuffer, { sigma = 6 }) {
   return await sharp(inputBuffer).rotate().blur(sigma).toBuffer();
 }
 
+export async function applyFeatureMode(inputBuffer, mode = "balanced") {
+  const normalized = String(mode || "balanced").trim().toLowerCase();
+  const presets = {
+    ultra: { outFormat: "webp", quality: 45, keepMeta: false, progressive: true, mozjpeg: true, chroma: "4:2:0", maxW: 0, targetKB: 0 },
+    balanced: { outFormat: "webp", quality: 78, keepMeta: false, progressive: true, mozjpeg: true, chroma: "4:2:0", maxW: 0, targetKB: 0 },
+    crystal: { outFormat: "jpeg", quality: 90, keepMeta: false, progressive: true, mozjpeg: true, chroma: "4:4:4", maxW: 0, targetKB: 0 }
+  };
+
+  const activeMode = presets[normalized] ? normalized : "balanced";
+  const r = await proCompress(inputBuffer, presets[activeMode]);
+
+  return {
+    ...r,
+    mode: activeMode,
+    outName: r.fmt === "webp" ? `${activeMode}.webp` : `${activeMode}.jpg`,
+    outMime: r.fmt === "webp" ? "image/webp" : "image/jpeg"
+  };
+}
+
 function escapeXml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
