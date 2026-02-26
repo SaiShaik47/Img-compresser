@@ -58,14 +58,14 @@ export function buildBot() {
   bot.command("start", async (ctx) => {
     ctx.session = makeInitialSession();
     await ctx.reply(
-      `${LUX.brand}\n\nSend an image (Photo or File).\nThen use the luxury panel below.\n\n• Input limit: ${MAX_INPUT_MB} MB\n• Output limit: ${MAX_OUTPUT_MB} MB\n\n${LUX.tips}`,
+      `${LUX.brand}\n\n1) Send an image (Photo or File).\n2) Wait for \"Image detected successfully\" confirmation.\n3) Tap an action button from the panel.\n\n• Input limit: ${MAX_INPUT_MB} MB\n• Output limit: ${MAX_OUTPUT_MB} MB\n\n${LUX.tips}`,
       { parse_mode: "Markdown" }
     );
   });
 
   bot.command("menu", async (ctx) => {
     return ctx.reply(
-      `${LUX.brand}\n${ctx.session.fileId ? "Choose an action:" : "Send an image first to unlock actions."}`,
+      `${LUX.brand}\n${ctx.session.fileId ? "✅ Image loaded. Choose an action below:" : "📥 Send an image first to unlock actions."}`,
       { parse_mode: "Markdown", reply_markup: kbHome(Boolean(ctx.session.fileId)) }
     );
   });
