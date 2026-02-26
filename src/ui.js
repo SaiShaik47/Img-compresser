@@ -2,9 +2,10 @@ import { InlineKeyboard } from "grammy";
 
 export const LUX = {
   brand: "𝐈𝐌𝐀𝐆𝐄 𝐒𝐓𝐔𝐃𝐈𝐎 ✨",
-  received: "✅ **Received.** Your image is locked in the Studio vault.",
+  received:
+    "✅ **Image detected successfully.**\nYour photo is ready — choose what you want to do from the panel below.",
   processing: "🔄 **Processing…**\n`Optimizing pixels • balancing quality • preparing delivery`",
-  noImage: "Send an image first (Photo or File) — then I’ll unlock the Studio.",
+  noImage: "📥 No image selected yet. Please send a Photo or File first to unlock editing tools.",
   canceled: "❌ **Canceled.** Studio reset. Send a new image.",
   cleared: "🧹 **Cleared.** Send a new image to begin.",
   tips:
@@ -15,13 +16,13 @@ export function kbHome(hasImage = false) {
   if (!hasImage) return new InlineKeyboard();
 
   return new InlineKeyboard()
-    .text("✨ Quick Optimize", "q:quick").row()
-    .text("🎯 Compress to Size", "c:ask_target").text("🧪 Compare Modes", "q:compare").row()
-    .text("🎛 Pro Studio", "p:studio").row()
-    .text("🖼 Resize", "p:resize").text("✂️ Crop", "p:crop").row()
-    .text("🔁 Convert", "p:convert").text("🔃 Rotate", "p:rotate").row()
-    .text("🖋 Watermark", "p:watermark").text("🫧 Blur", "p:blur").row()
-    .text("🆕 New Task", "nav:new").text("❌ Cancel", "nav:cancel");
+    .text("⚡ Quick Compress (Recommended)", "q:quick").row()
+    .text("🎯 Compress to Exact Size", "c:ask_target").text("🧪 Compare Quality Modes", "q:compare").row()
+    .text("🎛 Advanced Studio Settings", "p:studio").row()
+    .text("🖼 Resize Image", "p:resize").text("✂️ Crop Image", "p:crop").row()
+    .text("🔁 Convert Format", "p:convert").text("🔃 Rotate Image", "p:rotate").row()
+    .text("🖋 Add Watermark", "p:watermark").text("🫧 Apply Blur", "p:blur").row()
+    .text("🆕 Use New Image", "nav:new").text("❌ Cancel", "nav:cancel");
 }
 
 export function kbStudio(s) {
@@ -45,7 +46,7 @@ export function kbStudio(s) {
 }
 
 export function kbBackHome() {
-  return new InlineKeyboard().text("⬅️ Back to Panel", "nav:home").text("❌ Cancel", "nav:cancel");
+  return new InlineKeyboard().text("⬅️ Back to Main Actions", "nav:home").text("❌ Cancel", "nav:cancel");
 }
 
 export function formatStats({ beforeKB, afterKB, savedPct, dimsBefore, dimsAfter, fmt }) {
