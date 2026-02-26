@@ -11,7 +11,9 @@ export const LUX = {
     "Tip: Send as **File** for best quality (Document). Photos may be pre-compressed by Telegram."
 };
 
-export function kbHome() {
+export function kbHome(hasImage = false) {
+  if (!hasImage) return new InlineKeyboard();
+
   return new InlineKeyboard()
     .text("✨ Quick Optimize", "q:quick").row()
     .text("🎯 Compress to Size", "c:ask_target").text("🧪 Compare Modes", "q:compare").row()
@@ -72,4 +74,4 @@ export function studioCard(s) {
     `• MozJPEG: **${p.mozjpeg ? "ON" : "OFF"}**\n` +
     `• Chroma: **${p.chroma}**`
   );
-    }
+}

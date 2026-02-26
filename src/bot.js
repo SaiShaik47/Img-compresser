@@ -1,4 +1,4 @@
-import { Bot, session } from "grammy";
+import { Bot, InputFile, session } from "grammy";
 import {
   LUX,
   kbHome,
@@ -55,29 +55,29 @@ export function buildBot() {
   const bot = new Bot(token);
   bot.use(session({ initial: makeInitialSession }));
 
-  // ---------- Commands ----------
   bot.command("start", async (ctx) => {
     ctx.session = makeInitialSession();
     await ctx.reply(
       `${LUX.brand}\n\nSend an image (Photo or File).\nThen use the luxury panel below.\n\n• Input limit: ${MAX_INPUT_MB} MB\n• Output limit: ${MAX_OUTPUT_MB} MB\n\n${LUX.tips}`,
-      { parse_mode: "Markdown", reply_markup: kbHome() }
+      { parse_mode: "Markdown" }
     );
   });
 
   bot.command("menu", async (ctx) => {
-    await ctx.reply(`${LUX.brand}\nChoose an action:`, { parse_mode: "Markdown", reply_markup: kbHome() });
+    return ctx.reply(
+      `${LUX.brand}\n${ctx.session.fileId ? "Choose an action:" : "Send an image first to unlock actions."}`,
+      { parse_mode: "Markdown", reply_markup: kbHome(Boolean(ctx.session.fileId)) }
+    );
   });
 
-  // ---------- Receive Photo ----------
   bot.on("message:photo", async (ctx) => {
     const best = ctx.message.photo.at(-1);
     ctx.session.fileId = best.file_id;
     ctx.session.fileName = "photo.jpg";
     ctx.session.awaiting = null;
-    await ctx.reply(LUX.received, { parse_mode: "Markdown", reply_markup: kbHome() });
+    await ctx.reply(LUX.received, { parse_mode: "Markdown", reply_markup: kbHome(true) });
   });
 
-  // ---------- Receive Document ----------
   bot.on("message:document", async (ctx) => {
     const doc = ctx.message.document;
     if (!doc.mime_type?.startsWith("image/")) {
@@ -89,141 +89,129 @@ export function buildBot() {
     ctx.session.fileId = doc.file_id;
     ctx.session.fileName = doc.file_name || "image";
     ctx.session.awaiting = null;
-    await ctx.reply(LUX.received, { parse_mode: "Markdown", reply_markup: kbHome() });
+    await ctx.reply(LUX.received, { parse_mode: "Markdown", reply_markup: kbHome(true) });
   });
 
-  // ---------- Callbacks ----------
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
     await ctx.answerCallbackQuery();
 
-    // NAV
-    if (data === "nav:home") return showHome(ctx);
-    if (data === "nav:new") return clearSession(ctx);
-    if (data === "nav:cancel") return cancel(ctx);
+    if (data === "nav:home") return showHome(ctx, true);
+    if (data === "nav:new") return clearSession(ctx, true);
+    if (data === "nav:cancel") return cancel(ctx, true);
 
-    // Need image
     if (!ctx.session.fileId) {
-      return ctx.reply(LUX.noImage, { parse_mode: "Markdown", reply_markup: kbHome() });
+      return showHome(ctx, true, LUX.noImage);
     }
     if (ctx.session.busy) {
-      return ctx.reply("⏳ Studio is working… please wait.", { reply_markup: kbHome() });
+      return updatePanel(ctx, "⏳ Studio is working… please wait.", kbHome(true));
     }
 
-    // Quick actions
     if (data === "q:quick") return doQuick(ctx, MAX_OUTPUT_BYTES);
     if (data === "q:compare") return doCompare(ctx, MAX_OUTPUT_BYTES);
 
-    // Your requirement: Ask user target size for compress
     if (data === "c:ask_target") {
       ctx.session.awaiting = "compress_target";
-      return ctx.reply(
+      return updatePanel(
+        ctx,
         "🎯 **Compress to Size**\nSend target size like:\n• `300KB`\n• `1MB`\n• `750 kb`\n\nI will auto-adjust quality to reach it.",
-        { parse_mode: "Markdown", reply_markup: kbBackHome() }
+        kbBackHome()
       );
     }
 
-    // Studio open
     if (data === "p:studio") {
-      return ctx.reply(studioCard(ctx.session), { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, studioCard(ctx.session), kbStudio(ctx.session));
     }
 
-    // Other tools (need text)
     if (data === "p:resize") {
       ctx.session.awaiting = "resize_wh";
-      return ctx.reply("🖼 **Resize**\nSend: `width height`\nExample: `1080 0`", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "🖼 **Resize**\nSend: `width height`\nExample: `1080 0`", kbBackHome());
     }
     if (data === "p:crop") {
       ctx.session.awaiting = "crop_xywh";
-      return ctx.reply("✂️ **Crop**\nSend: `left top width height`\nExample: `50 50 400 400`", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "✂️ **Crop**\nSend: `left top width height`\nExample: `50 50 400 400`", kbBackHome());
     }
     if (data === "p:convert") {
       ctx.session.awaiting = "convert_fmt";
-      return ctx.reply("🔁 **Convert**\nSend: `jpg` / `png` / `webp`", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "🔁 **Convert**\nSend: `jpg` / `png` / `webp`", kbBackHome());
     }
     if (data === "p:rotate") {
       ctx.session.awaiting = "rotate_angle";
-      return ctx.reply("🔃 **Rotate**\nSend: `90` / `180` / `270`", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "🔃 **Rotate**\nSend: `90` / `180` / `270`", kbBackHome());
     }
     if (data === "p:watermark") {
       ctx.session.awaiting = "watermark_text";
-      return ctx.reply("🖋 **Watermark**\nSend text (example: `Sai Shaik`)", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "🖋 **Watermark**\nSend text (example: `Sai Shaik`)", kbBackHome());
     }
     if (data === "p:blur") {
       ctx.session.awaiting = "blur_sigma";
-      return ctx.reply("🫧 **Blur**\nSend strength `1-20` (example: `6`)", { parse_mode: "Markdown", reply_markup: kbBackHome() });
+      return updatePanel(ctx, "🫧 **Blur**\nSend strength `1-20` (example: `6`)", kbBackHome());
     }
 
-    // Studio setters
     if (data === "set:fmt") {
       ctx.session.awaiting = "studio_fmt";
-      return ctx.reply("Send format: `jpeg` / `webp` / `png`", { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, "Send format: `jpeg` / `webp` / `png`", kbStudio(ctx.session));
     }
     if (data === "set:quality") {
       ctx.session.awaiting = "studio_quality";
-      return ctx.reply("Send quality `10-95` (example: `78`)", { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, "Send quality `10-95` (example: `78`)", kbStudio(ctx.session));
     }
     if (data === "set:target") {
       ctx.session.awaiting = "studio_target";
-      return ctx.reply("Send target size: `300KB` / `1MB` or `OFF`", { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, "Send target size: `300KB` / `1MB` or `OFF`", kbStudio(ctx.session));
     }
     if (data === "set:maxw") {
       ctx.session.awaiting = "studio_maxw";
-      return ctx.reply("Send max width in px (example: `1280`) or `0`", { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, "Send max width in px (example: `1280`) or `0`", kbStudio(ctx.session));
     }
     if (data === "set:chroma") {
       ctx.session.awaiting = "studio_chroma";
-      return ctx.reply("Send chroma: `4:2:0` or `4:4:4`", { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, "Send chroma: `4:2:0` or `4:4:4`", kbStudio(ctx.session));
     }
 
-    // Studio toggles
     if (data === "tog:meta") {
       ctx.session.pro.keepMeta = !ctx.session.pro.keepMeta;
-      return ctx.reply(studioCard(ctx.session), { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, studioCard(ctx.session), kbStudio(ctx.session));
     }
     if (data === "tog:prog") {
       ctx.session.pro.progressive = !ctx.session.pro.progressive;
-      return ctx.reply(studioCard(ctx.session), { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, studioCard(ctx.session), kbStudio(ctx.session));
     }
     if (data === "tog:moz") {
       ctx.session.pro.mozjpeg = !ctx.session.pro.mozjpeg;
-      return ctx.reply(studioCard(ctx.session), { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
+      return updatePanel(ctx, studioCard(ctx.session), kbStudio(ctx.session));
     }
 
-    // Apply studio
     if (data === "do:apply") {
       return doApplyPro(ctx, MAX_OUTPUT_BYTES);
     }
 
-    return ctx.reply("Unknown action.", { reply_markup: kbHome() });
+    return updatePanel(ctx, "Unknown action.", kbHome(Boolean(ctx.session.fileId)));
   });
 
-  // ---------- Text Wizard ----------
   bot.on("message:text", async (ctx) => {
     const step = ctx.session.awaiting;
     if (!step) return;
 
     if (!ctx.session.fileId) {
       ctx.session.awaiting = null;
-      return ctx.reply(LUX.noImage, { parse_mode: "Markdown", reply_markup: kbHome() });
+      return ctx.reply(LUX.noImage, { parse_mode: "Markdown", reply_markup: kbHome(false) });
     }
     if (ctx.session.busy) return ctx.reply("⏳ Studio is working… please wait.");
 
     const text = ctx.message.text.trim();
 
     try {
-      // Compress to target size
       if (step === "compress_target") {
         const targetKB = parseSizeToKB(text);
         if (!targetKB || targetKB < 30) return ctx.reply("Send valid target like `300KB` or `1MB`.", { parse_mode: "Markdown" });
 
         ctx.session.pro.targetKB = targetKB;
-        ctx.session.pro.outFormat = "webp"; // best for target size
+        ctx.session.pro.outFormat = "webp";
         ctx.session.awaiting = null;
         return doApplyPro(ctx, MAX_OUTPUT_BYTES, `🎯 Target: **${targetKB}KB**`);
       }
 
-      // Resize
       if (step === "resize_wh") {
         const [wRaw, hRaw] = text.split(/\s+/);
         const w = parseInt(wRaw, 10);
@@ -238,7 +226,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, "resized.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
       }
 
-      // Crop
       if (step === "crop_xywh") {
         const [l, t, w, h] = text.split(/\s+/).map((n) => parseInt(n, 10));
         if (![l, t, w, h].every(Number.isFinite)) return ctx.reply("Send: `left top width height`", { parse_mode: "Markdown" });
@@ -250,7 +237,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, "cropped.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
       }
 
-      // Convert
       if (step === "convert_fmt") {
         const fmt = text.toLowerCase();
         const norm = fmt === "jpg" ? "jpeg" : fmt;
@@ -266,7 +252,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, name, mime, MAX_OUTPUT_BYTES);
       }
 
-      // Rotate
       if (step === "rotate_angle") {
         const angle = parseInt(text, 10);
         if (![90, 180, 270].includes(angle)) return ctx.reply("Send: `90` / `180` / `270`", { parse_mode: "Markdown" });
@@ -278,7 +263,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, `rotated_${angle}.jpg`, "image/jpeg", MAX_OUTPUT_BYTES);
       }
 
-      // Watermark
       if (step === "watermark_text") {
         const wm = text.slice(0, 50);
         if (!wm) return ctx.reply("Send watermark text.", { parse_mode: "Markdown" });
@@ -290,7 +274,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, "watermarked.jpg", "image/jpeg", MAX_OUTPUT_BYTES);
       }
 
-      // Blur
       if (step === "blur_sigma") {
         const sigma = clampInt(parseInt(text, 10), 1, 20, 6);
 
@@ -301,7 +284,6 @@ export function buildBot() {
         return sendOutput(ctx, input, out, `blur_${sigma}.jpg`, "image/jpeg", MAX_OUTPUT_BYTES);
       }
 
-      // Studio setters
       if (step === "studio_fmt") {
         const f = text.toLowerCase();
         if (!["jpeg", "webp", "png"].includes(f)) return ctx.reply("Send: `jpeg` / `webp` / `png`", { parse_mode: "Markdown" });
@@ -345,29 +327,45 @@ export function buildBot() {
         return ctx.reply(studioCard(ctx.session), { parse_mode: "Markdown", reply_markup: kbStudio(ctx.session) });
       }
 
-      // fallback
       ctx.session.awaiting = null;
-      return ctx.reply("✅ Done. Use /menu", { reply_markup: kbHome() });
+      return ctx.reply("✅ Done. Use /menu", { reply_markup: kbHome(Boolean(ctx.session.fileId)) });
     } catch (err) {
       ctx.session.awaiting = null;
-      return ctx.reply(`❌ Failed: ${err?.message || "Unknown error"}`, { reply_markup: kbHome() });
+      return ctx.reply(`❌ Failed: ${err?.message || "Unknown error"}`, { reply_markup: kbHome(Boolean(ctx.session.fileId)) });
     }
   });
 
-  // ---------- Helpers ----------
-  async function showHome(ctx) {
-    return ctx.reply(`${LUX.brand}\nChoose an action:`, { parse_mode: "Markdown", reply_markup: kbHome() });
+  async function updatePanel(ctx, text, replyMarkup) {
+    try {
+      return await ctx.editMessageText(text, {
+        parse_mode: "Markdown",
+        reply_markup: replyMarkup
+      });
+    } catch {
+      return ctx.reply(text, { parse_mode: "Markdown", reply_markup: replyMarkup });
+    }
   }
 
-  async function cancel(ctx) {
+  async function showHome(ctx, asEdit = false, header) {
+    const text = `${LUX.brand}\n${header || "Choose an action:"}`;
+    const markup = kbHome(Boolean(ctx.session.fileId));
+    if (asEdit) return updatePanel(ctx, text, markup);
+    return ctx.reply(text, { parse_mode: "Markdown", reply_markup: markup });
+  }
+
+  async function cancel(ctx, asEdit = false) {
     ctx.session.awaiting = null;
     ctx.session.busy = false;
-    return ctx.reply(LUX.canceled, { parse_mode: "Markdown", reply_markup: kbHome() });
+    const markup = kbHome(Boolean(ctx.session.fileId));
+    if (asEdit) return updatePanel(ctx, LUX.canceled, markup);
+    return ctx.reply(LUX.canceled, { parse_mode: "Markdown", reply_markup: markup });
   }
 
-  async function clearSession(ctx) {
+  async function clearSession(ctx, asEdit = false) {
     ctx.session = makeInitialSession();
-    return ctx.reply(`${LUX.cleared}\n\n${LUX.brand}`, { parse_mode: "Markdown", reply_markup: kbHome() });
+    const msg = `${LUX.cleared}\n\n${LUX.brand}`;
+    if (asEdit) return updatePanel(ctx, msg, kbHome(false));
+    return ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kbHome(false) });
   }
 
   async function doQuick(ctx, maxOutBytes) {
@@ -382,7 +380,7 @@ export function buildBot() {
       const outName = r.fmt === "png" ? "optimized.png" : r.fmt === "webp" ? "optimized.webp" : "optimized.jpg";
       const outMime = r.fmt === "png" ? "image/png" : r.fmt === "webp" ? "image/webp" : "image/jpeg";
 
-      return sendOutputWithStats(ctx, input, r, outName, outMime, maxOutBytes);
+      return sendOutputWithStats(ctx, r, outName, outMime, maxOutBytes);
     } finally {
       ctx.session.busy = false;
     }
@@ -398,9 +396,9 @@ export function buildBot() {
       for (const r of results) {
         const outName = r.fmt === "webp" ? `${r.label}.webp` : `${r.label}.jpg`;
         const outMime = r.fmt === "webp" ? "image/webp" : "image/jpeg";
-        await sendOutputWithStats(ctx, input, r, outName, outMime, maxOutBytes, `🧪 Mode: **${r.label}**`);
+        await sendOutputWithStats(ctx, r, outName, outMime, maxOutBytes, `🧪 Mode: **${r.label}**`);
       }
-      await ctx.reply("🆕 Send another image or use the panel.", { reply_markup: kbHome() });
+      await ctx.reply("🆕 Send another image or use the panel.", { reply_markup: kbHome(true) });
     } finally {
       ctx.session.busy = false;
     }
@@ -416,17 +414,17 @@ export function buildBot() {
       const outName = r.fmt === "png" ? "studio.png" : r.fmt === "webp" ? "studio.webp" : "studio.jpg";
       const outMime = r.fmt === "png" ? "image/png" : r.fmt === "webp" ? "image/webp" : "image/jpeg";
 
-      return sendOutputWithStats(ctx, input, r, outName, outMime, maxOutBytes, extraCaption);
+      return sendOutputWithStats(ctx, r, outName, outMime, maxOutBytes, extraCaption);
     } finally {
       ctx.session.busy = false;
     }
   }
 
-  async function sendOutputWithStats(ctx, input, r, outName, outMime, maxOutBytes, extraCaption) {
+  async function sendOutputWithStats(ctx, r, outName, outMime, maxOutBytes, extraCaption) {
     if (r.outBuffer.length > maxOutBytes) {
       return ctx.reply(
         `⚠️ Output too large (${MAX_OUTPUT_MB}MB limit). Try:\n• Lower quality\n• Set Target size\n• Set Max width`,
-        { reply_markup: kbHome() }
+        { reply_markup: kbHome(true) }
       );
     }
 
@@ -440,16 +438,16 @@ export function buildBot() {
       fmt: r.fmt
     });
 
-    await ctx.replyWithDocument(new File([r.outBuffer], outName, { type: outMime }), {
+    await ctx.replyWithDocument(new InputFile(r.outBuffer, outName), {
       caption: capA + capB,
       parse_mode: "Markdown",
-      reply_markup: kbHome()
+      reply_markup: kbHome(true)
     });
   }
 
   async function sendOutput(ctx, input, out, outName, outMime, maxOutBytes) {
     if (out.length > maxOutBytes) {
-      return ctx.reply(`⚠️ Output too large (${MAX_OUTPUT_MB}MB). Try smaller settings.`, { reply_markup: kbHome() });
+      return ctx.reply(`⚠️ Output too large (${MAX_OUTPUT_MB}MB). Try smaller settings.`, { reply_markup: kbHome(true) });
     }
 
     const beforeKB = Math.round(input.length / 1024);
@@ -458,7 +456,7 @@ export function buildBot() {
     const dimsAfter = await readMeta(out);
     const savedPct = Math.max(0, Math.round(((beforeKB - afterKB) / beforeKB) * 100));
 
-    await ctx.replyWithDocument(new File([out], outName, { type: outMime }), {
+    await ctx.replyWithDocument(new InputFile(out, outName), {
       caption: formatStats({
         beforeKB,
         afterKB,
@@ -468,7 +466,7 @@ export function buildBot() {
         fmt: outMime.split("/")[1]
       }),
       parse_mode: "Markdown",
-      reply_markup: kbHome()
+      reply_markup: kbHome(true)
     });
   }
 
